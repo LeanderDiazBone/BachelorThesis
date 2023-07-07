@@ -147,6 +147,7 @@ def bothVisualizations(adata, vae, prior, lim=5):
 
 ### Functions for Benchmark
 from scib_metrics.benchmark import Benchmarker
+import scib_metrics
 
 def trainModelBenchmark(adata, prior, prior_kwargs = None, max_epochs = 100, save=None):
     scvi.model.SCVI.setup_anndata(adata, layer="counts", batch_key="batch")
@@ -157,14 +158,15 @@ def trainModelBenchmark(adata, prior, prior_kwargs = None, max_epochs = 100, sav
     adata.obsm["scVI"] = vae.get_latent_representation()
     return adata, vae
 
-def plotBenchmarkResults(adata,keys=None):
+def plotBenchmarkResults(adata,keys=None,label_key="cell_type"):
     if keys == None:
         keys = ["Unintegrated", "LIGER", "Scanorama", "scVI"]
     bm = Benchmarker(
     adata,
     batch_key="batch",
-    label_key="cell_type",
+    label_key=label_key,
     embedding_obsm_keys=keys,
+    bio_conservation_metrics=scib_metrics.benchmark.BioConservation(isolated_labels = True, nmi_ari_cluster_labels_leiden=True, nmi_ari_cluster_labels_kmeans = True, silhouette_label=True, clisi_knn = True),
     n_jobs=6,
     )
     bm.benchmark()
