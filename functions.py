@@ -1,7 +1,41 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import scvi
+import scanpy as sc
 import torch
+from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
+import warnings
+
+### Functions for umap visualization
+
+def trainModelVisualization(adata,prior,max_epochs,freq=5,save=None, prior_kwargs=None):
+    model = scvi.model.SCVI(adata,prior_distribution=prior, prior_kwargs=prior_kwargs)
+    model.train(max_epochs=max_epochs,check_val_every_n_epoch=freq)
+    if save != None:
+        model.save(save)
+    return model
+
+def umapVisualization(model, adata):
+    warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
+    adata.obsm["X_scVI"] = model.get_latent_representation()
+    #adata_subset = adata[adata.obs.cell_type == "Fibroblast"]
+    #latent_subset = model.get_latent_representation(adata_subset)
+    #denoised = model.get_normalized_expression(adata_subset, library_size=1e4)
+    #denoised.iloc[:5, :5]
+    #adata.layers["scvi_normalized"] = model.get_normalized_expression(library_size=10e4)
+    sc.pp.neighbors(adata, use_rep="X_scVI")
+    sc.tl.umap(adata, min_dist=0.3)
+    sc.pl.umap(
+        adata,
+        color=["cell_type"],
+        frameon=False,
+    )
+    """sc.pl.umap(
+        adata,
+        color=["donor", "cell_source"],
+        ncols=2,
+        frameon=False,
+    )"""
 
 ### Functions for visualizing Training History
 
@@ -61,13 +95,6 @@ def trainModelPostVis(adata,prior,max_epochs,freq=5,save=None, prior_kwargs=None
         model.save(save)
     return model
 
-def plotPosterior(adata, vae,num=500):
-    data = torch.tensor(adata.X[0:num].todense())
-    data = data.to(torch.device('cuda:0'))
-    distrs, zs = vae.module.z_encoder(data)
-    d = np.transpose(np.array(zs.detach().cpu()))
-    plt.scatter(d[0],d[1])
-
 def contourPlotDist(dist, xlim, ylim):
     x = np.linspace(-xlim, xlim, 100)
     y = np.linspace(-ylim, ylim, 100)
@@ -76,12 +103,26 @@ def contourPlotDist(dist, xlim, ylim):
     for i in range(x.shape[0]):
         for j in range(y.shape[0]):
             Z[i][j] = dist.log_prob(torch.tensor([x[i],y[j]]).to(torch.device('cuda:0')))
-    plt.contour(X,Y,Z)
+    plt.contourf(X,Y,Z)
+    
+def getPosteriorPoints(adata, vae, num = 500):
+    data = torch.tensor(adata.X[np.random.choice(adata.X.shape[0], num, replace=False)].todense())
+    data = data.to(torch.device('cuda:0'))
+    distrs, zs = vae.module.z_encoder(data)
+    d = np.transpose(np.array(zs.detach().cpu()))
+    return d
 
-def posteriorVisualization(adata, vae, dist, lim, pr):
-    plotPosterior(adata, vae)
-    contourPlotDist(dist, lim, lim)
+def plotPosterior(d):
+    plt.scatter(d[0],d[1],color="black",s=5)
+
+def posteriorVisualization(adata, vae, pr):
+    d = getPosteriorPoints(adata, vae)
+    lim = max(d.min(), d.max(), key=abs)
+    contourPlotDist(vae.module.prior, lim, lim)
+    plotPosterior(d)
     plt.title("Posterior and Prior Vis " + pr + " Prior")
+    plt.xlabel("latent_1")
+    plt.ylabel("latent_2")
     plt.show()
 
 def plotSamples(distr, num, title, numsamples = True):
