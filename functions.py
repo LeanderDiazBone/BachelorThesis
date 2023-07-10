@@ -5,6 +5,8 @@ import scanpy as sc
 import torch
 from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 import warnings
+import scanorama
+import pyliger
 
 ### Functions for umap visualization
 
@@ -95,14 +97,17 @@ def trainModelPostVis(adata,prior,max_epochs,freq=5,save=None, prior_kwargs=None
         model.save(save)
     return model
 
-def contourPlotDist(dist, xlim, ylim):
+def contourPlotDist(dist, xlim, ylim,flow=False):
     x = np.linspace(-xlim, xlim, 100)
     y = np.linspace(-ylim, ylim, 100)
     X, Y = np.meshgrid(x,y)
     Z = np.zeros_like(X)
     for i in range(x.shape[0]):
         for j in range(y.shape[0]):
-            Z[i][j] = dist.log_prob(torch.tensor([x[i],y[j]]).to(torch.device('cuda:0')))
+            if flow:
+                Z[i][j] = dist.log_prob(torch.tensor([[float(x[i]),float(y[j])]]).to(torch.device('cuda:0')))
+            else:
+                Z[i][j] = dist.log_prob(torch.tensor([x[i],y[j]]).to(torch.device('cuda:0')))
     plt.contourf(X,Y,Z)
     
 def getPosteriorPoints(adata, vae, num = 500):
@@ -115,10 +120,10 @@ def getPosteriorPoints(adata, vae, num = 500):
 def plotPosterior(d):
     plt.scatter(d[0],d[1],color="black",s=5)
 
-def posteriorVisualization(adata, vae, pr):
+def posteriorVisualization(adata, vae, pr,flow=False):
     d = getPosteriorPoints(adata, vae)
     lim = max(d.min(), d.max(), key=abs)
-    contourPlotDist(vae.module.prior, lim, lim)
+    contourPlotDist(vae.module.prior, lim, lim,flow)
     plotPosterior(d)
     plt.title("Posterior and Prior Vis " + pr + " Prior")
     plt.xlabel("latent_1")
@@ -145,12 +150,23 @@ def bothVisualizations(adata, vae, prior, lim=5):
     plotPosterior(adata, vae, num = 1000)
     plt.title("Posterior and Prior Samples "+prior+" Prior")
 
+def plotFlowSamples(vaeNF):
+    x = []; y = []
+    for i in range(100):
+        s1, _  = vaeNF.module.prior.sample(1)
+        s = s1.cpu().detach()
+        x.append(s[0,0].item())
+        y.append(s[0,1].item())
+    fig, ax = plt.subplots()
+    scatter = ax.scatter(x,y)
+    plt.show()
+
 ### Functions for Benchmark
 from scib_metrics.benchmark import Benchmarker
 import scib_metrics
 
-def trainModelBenchmark(adata, prior, prior_kwargs = None, max_epochs = 100, save=None):
-    scvi.model.SCVI.setup_anndata(adata, layer="counts", batch_key="batch")
+def trainModelBenchmark(adata, prior, prior_kwargs = None, max_epochs = 100, save=None, batch_key="batch"):
+    scvi.model.SCVI.setup_anndata(adata, layer="counts", batch_key=batch_key)
     vae = scvi.model.SCVI(adata, prior_distribution = prior,prior_kwargs=prior_kwargs, n_layers=2, n_latent=30)
     vae.train(max_epochs=max_epochs,check_val_every_n_epoch=5)
     if save != None:
@@ -158,12 +174,12 @@ def trainModelBenchmark(adata, prior, prior_kwargs = None, max_epochs = 100, sav
     adata.obsm["scVI"] = vae.get_latent_representation()
     return adata, vae
 
-def plotBenchmarkResults(adata,keys=None,label_key="cell_type"):
+def plotBenchmarkResults(adata,keys=None,label_key="cell_type",batch_key="batch"):
     if keys == None:
         keys = ["Unintegrated", "LIGER", "Scanorama", "scVI"]
     bm = Benchmarker(
     adata,
-    batch_key="batch",
+    batch_key=batch_key,
     label_key=label_key,
     embedding_obsm_keys=keys,
     bio_conservation_metrics=scib_metrics.benchmark.BioConservation(isolated_labels = True, nmi_ari_cluster_labels_leiden=True, nmi_ari_cluster_labels_kmeans = True, silhouette_label=True, clisi_knn = True),
@@ -179,3 +195,40 @@ def plotBenchmarkResultsAll(sdnormalAdata, normalAdata, mogAdata, vampAdata):
     adataAll.obsm["scVIMoG"] = mogAdata.obsm["scVI"]
     adataAll.obsm["scVIVamp"] = vampAdata.obsm["scVI"]
     plotBenchmarkResults(adataAll,["Unintegrated", "LIGER", "Scanorama", "scVINormal","scVIMoG","scVIVamp","scVISDNormal"])
+
+def scanoramaPredict(adata,batch_label="batch"):
+    batch_cats = adata.obs[batch_label].cat.categories
+    adata_list = [adata[adata.obs[batch_label] == b].copy() for b in batch_cats]
+    scanorama.integrate_scanpy(adata_list)
+
+    adata.obsm["Scanorama"] = np.zeros((adata.shape[0], adata_list[0].obsm["X_scanorama"].shape[1]))
+    for i, b in enumerate(batch_cats):
+        adata.obsm["Scanorama"][adata.obs[batch_label] == b] = adata_list[i].obsm["X_scanorama"]
+
+
+def ligerPredict(adata,batch_label="batch"):
+    batch_cats = adata.obs[batch_label].cat.categories
+    bdata = adata.copy()
+    # Pyliger normalizes by library size with a size factor of 1
+    # So here we give it the count data
+    bdata.X = bdata.layers["counts"]
+    # List of adata per batch
+    adata_list = [bdata[bdata.obs.batch == b].copy() for b in batch_cats]
+    for i, ad in enumerate(adata_list):
+        ad.uns["sample_name"] = batch_cats[i]
+        # Hack to make sure each method uses the same genes
+        ad.uns["var_gene_idx"] = np.arange(bdata.n_vars)
+
+
+    liger_data = pyliger.create_liger(adata_list, remove_missing=False, make_sparse=False)
+    # Hack to make sure each method uses the same genes
+    liger_data.var_genes = bdata.var_names
+    pyliger.normalize(liger_data)
+    pyliger.scale_not_center(liger_data)
+    pyliger.optimize_ALS(liger_data, k=30)
+    pyliger.quantile_norm(liger_data)
+
+
+    adata.obsm["LIGER"] = np.zeros((adata.shape[0], liger_data.adata_list[0].obsm["H_norm"].shape[1]))
+    for i, b in enumerate(batch_cats):
+        adata.obsm["LIGER"][adata.obs.batch == b] = liger_data.adata_list[i].obsm["H_norm"]
