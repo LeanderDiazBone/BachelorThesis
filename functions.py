@@ -7,6 +7,7 @@ from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWa
 import warnings
 import scanorama
 import pyliger
+from lightning.pytorch.loggers.tensorboard import TensorBoardLogger
 
 ### Functions for umap visualization
 
@@ -89,10 +90,13 @@ def plotAllHistory(model):
 
 ### Functions for Posterior Visualization
 
-def trainModelPostVis(adata,prior,max_epochs,freq=5,save=None, prior_kwargs=None):
+def trainModelPostVis(adata,prior,max_epochs,freq=5,save=None, prior_kwargs=None, log=False):
+    logger = None
+    if log:
+        logger = TensorBoardLogger(save_dir="lightning_logs")
     scvi.model.SCVI.setup_anndata(adata, layer="counts")
     model = scvi.model.SCVI(adata,prior_distribution=prior, prior_kwargs=prior_kwargs,n_latent=2)
-    model.train(max_epochs = max_epochs, check_val_every_n_epoch=freq)# trainer_kwargs=
+    model.train(max_epochs = max_epochs, check_val_every_n_epoch=freq,logger=logger)
     if save != None:
         model.save(save)
     return model
@@ -165,10 +169,13 @@ def plotFlowSamples(vaeNF):
 from scib_metrics.benchmark import Benchmarker
 import scib_metrics
 
-def trainModelBenchmark(adata, prior, prior_kwargs = None, max_epochs = 100, save=None, batch_key="batch"):
+def trainModelBenchmark(adata, prior, prior_kwargs = None, max_epochs = 100, save=None, batch_key="batch",log=False,logname="",early_stopping=False):
     scvi.model.SCVI.setup_anndata(adata, layer="counts", batch_key=batch_key)
+    logger = None
+    if log:
+        logger = TensorBoardLogger(save_dir="lightning_logs",name=logname)
     vae = scvi.model.SCVI(adata, prior_distribution = prior,prior_kwargs=prior_kwargs, n_layers=2, n_latent=30)
-    vae.train(max_epochs=max_epochs,check_val_every_n_epoch=5)
+    vae.train(max_epochs=max_epochs,check_val_every_n_epoch=5,logger=logger,early_stopping=early_stopping)
     if save != None:
         vae.save(save)
     adata.obsm["scVI"] = vae.get_latent_representation()
