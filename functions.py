@@ -8,6 +8,7 @@ import warnings
 import scanorama
 import pyliger
 from lightning.pytorch.loggers.tensorboard import TensorBoardLogger
+import seaborn as sns
 
 ### Functions for umap visualization
 
@@ -90,13 +91,13 @@ def plotAllHistory(model):
 
 ### Functions for Posterior Visualization
 
-def trainModelPostVis(adata,prior,max_epochs,freq=5,save=None, prior_kwargs=None, log=False):
+def trainModelPostVis(adata,prior,max_epochs,freq=5,save=None, prior_kwargs=None, log=False,early_stopping=False,logname=""):
     logger = None
     if log:
-        logger = TensorBoardLogger(save_dir="lightning_logs")
+        logger = TensorBoardLogger(save_dir="lightning_logs",name=logname)
     scvi.model.SCVI.setup_anndata(adata, layer="counts")
     model = scvi.model.SCVI(adata,prior_distribution=prior, prior_kwargs=prior_kwargs,n_latent=2)
-    model.train(max_epochs = max_epochs, check_val_every_n_epoch=freq,logger=logger)
+    model.train(max_epochs = max_epochs, check_val_every_n_epoch=freq,logger=logger,early_stopping=early_stopping)
     if save != None:
         model.save(save)
     return model
@@ -112,7 +113,9 @@ def contourPlotDist(dist, xlim, ylim,flow=False):
                 Z[i][j] = dist.log_prob(torch.tensor([[float(x[i]),float(y[j])]]).to(torch.device('cuda:0')))
             else:
                 Z[i][j] = dist.log_prob(torch.tensor([x[i],y[j]]).to(torch.device('cuda:0')))
-    plt.contourf(X,Y,Z)
+    levels = np.linspace(-15.0, 0.0, 15)
+    np.insert(levels, 0,-1000)
+    plt.contourf(X,Y,Z,levels=levels)
     
 def getPosteriorPoints(adata, vae, num = 500,cuda=True):
     data = torch.tensor(adata.X[np.random.choice(adata.X.shape[0], num, replace=False)].todense())
@@ -241,3 +244,26 @@ def ligerPredict(adata,batch_label="batch"):
     adata.obsm["LIGER"] = np.zeros((adata.shape[0], liger_data.adata_list[0].obsm["H_norm"].shape[1]))
     for i, b in enumerate(batch_cats):
         adata.obsm["LIGER"][adata.obs.batch == b] = liger_data.adata_list[i].obsm["H_norm"]
+
+
+### latent space
+
+def plotW(vae):
+    plt.bar(np.linspace(1,20,20),torch.softmax(vae.module.prior.w,dim=0).detach().cpu())
+
+def covariance(adata, vae):
+    dist, z = vae.module.z_encoder(torch.tensor(adata.X.todense()).to("cuda:0"))
+    return torch.cov(z.T)
+
+def activateUnits(adata,vae):
+    arr = np.diag(np.array(covariance(adata, vae).cpu().detach()))
+    return arr, (arr > 0.1).sum()
+
+
+def plotcovarianceMatrix(adata, vae):
+    ax = sns.heatmap(covariance(adata,vae).detach().cpu(),vmax=1,vmin=-1,cmap=sns.color_palette("vlag", as_cmap=True))
+    ax.set(yticklabels=[])
+    ax.tick_params(left=False)
+    ax.set(xticklabels=[])
+    ax.tick_params(bottom=False)
+    plt.show()
