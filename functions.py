@@ -114,12 +114,14 @@ def contourPlotDist(dist, xlim, ylim,flow=False):
                 Z[i][j] = dist.log_prob(torch.tensor([x[i],y[j]]).to(torch.device('cuda:0')))
     plt.contourf(X,Y,Z)
     
-def getPosteriorPoints(adata, vae, num = 500):
+def getPosteriorPoints(adata, vae, num = 500,cuda=True):
     data = torch.tensor(adata.X[np.random.choice(adata.X.shape[0], num, replace=False)].todense())
-    data = data.to(torch.device('cuda:0'))
+    if cuda:
+        data = data.to(torch.device('cuda:0'))
     distrs, zs = vae.module.z_encoder(data)
     d = np.transpose(np.array(zs.detach().cpu()))
     return d
+
 
 def plotPosterior(d):
     plt.scatter(d[0],d[1],color="black",s=5)
@@ -151,7 +153,7 @@ def plotSamples(distr, num, title, numsamples = True):
 def bothVisualizations(adata, vae, prior, lim=5):
     posteriorVisualization(adata, vae, vae.module.prior, lim, prior)
     plotSamples(vae.module.prior,num = 1000,title=prior)
-    plotPosterior(adata, vae, num = 1000)
+    plotPosterior(getPosteriorPoints(adata, vae, num = 1000))
     plt.title("Posterior and Prior Samples "+prior+" Prior")
 
 def plotFlowSamples(vaeNF):
