@@ -182,7 +182,7 @@ def trainModelBenchmark(adata, prior, prior_kwargs = None, max_epochs = 100, sav
     vae = scvi.model.SCVI(adata, prior_distribution = prior,prior_kwargs=prior_kwargs, n_layers=2, n_latent=30)
     vae.train(max_epochs=max_epochs,check_val_every_n_epoch=5,logger=logger,early_stopping=early_stopping)
     if save != None:
-        vae.save(save)
+        sss
     adata.obsm["scVI"] = vae.get_latent_representation()
     return adata, vae
 
