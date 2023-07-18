@@ -9,15 +9,16 @@ import scanorama
 import pyliger
 from lightning.pytorch.loggers.tensorboard import TensorBoardLogger
 import seaborn as sns
-
+import pandas as pd
 ### Functions for umap visualization
 
-def trainModelVisualization(adata,prior,max_epochs,freq=5,save=None, prior_kwargs=None):
+def trainModelVisualization(adata,prior,max_epochs,freq=5,save=None, prior_kwargs=None, max_kl_weight = 1, n_epochs_kl_warmpup = 100):
     model = scvi.model.SCVI(adata,prior_distribution=prior, prior_kwargs=prior_kwargs)
-    model.train(max_epochs=max_epochs,check_val_every_n_epoch=freq)
+    model.train(max_epochs=max_epochs,check_val_every_n_epoch=freq,plan_kwargs={"max_kl_weight":max_kl_weight,"n_epochs_kl_warmup":n_epochs_kl_warmpup})
     if save != None:
         model.save(save)
     return model
+
 
 def umapVisualization(model, adata):
     warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
@@ -117,23 +118,32 @@ def contourPlotDist(dist, xlim, ylim,flow=False):
     np.insert(levels, 0,-1000)
     plt.contourf(X,Y,Z,levels=levels)
     
+
 def getPosteriorPoints(adata, vae, num = 500,cuda=True):
-    data = torch.tensor(adata.X[np.random.choice(adata.X.shape[0], num, replace=False)].todense())
+    rc = np.random.choice(adata.X.shape[0], num, replace=False)
+    data = torch.tensor(adata.X[rc].todense())
+    cell_types = adata.obs["cell_type"][rc]
     if cuda:
         data = data.to(torch.device('cuda:0'))
     distrs, zs = vae.module.z_encoder(data)
     d = np.transpose(np.array(zs.detach().cpu()))
-    return d
+    return d, cell_types
 
 
-def plotPosterior(d):
-    plt.scatter(d[0],d[1],color="black",s=5)
+def plotPosterior(d, cell_types, plot_cell_color = True):
+    df = pd.DataFrame(np.transpose(np.vstack((d,cell_types))), columns=["dx","dy","cell_type"])
+    if plot_cell_color:
+        for ct in df["cell_type"].unique():
+            plt.scatter(df[df["cell_type"]==ct]["dx"], df[df["cell_type"]==ct]["dy"], s= 5, label=ct)
+    else:
+        plt.scatter(df["dx"],df["dy"],color="black",s=5)
+    plt.plot()
 
 def posteriorVisualization(adata, vae, pr,flow=False):
-    d = getPosteriorPoints(adata, vae)
+    d, cell_type = getPosteriorPoints(adata, vae)
     lim = max(d.min(), d.max(), key=abs)
     contourPlotDist(vae.module.prior, lim, lim,flow)
-    plotPosterior(d)
+    plotPosterior(d, cell_type)
     plt.title("Posterior and Prior Vis " + pr + " Prior")
     plt.xlabel("latent_1")
     plt.ylabel("latent_2")
