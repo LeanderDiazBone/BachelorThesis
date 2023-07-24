@@ -326,7 +326,7 @@ def runBenchmark(adata, keys, batch_key="batch", label_key="cell_type", isolated
         batch_key=batch_key,
         label_key=label_key,
         embedding_obsm_keys=keys,
-        batch_correction_metrics=scib_metrics.benchmark.BatchCorrection(silhouette_batch,ilisi_knn, kbet_per_label, graph_connectivity, pcr_comparison),
+        batch_correction_metrics=scib_metrics.benchmark.BatchCorrection(silhouette_batch, ilisi_knn, kbet_per_label, graph_connectivity, pcr_comparison),
         bio_conservation_metrics=scib_metrics.benchmark.BioConservation(isolated_labels, nmi_ari_cluster_labels_leiden, nmi_ari_cluster_labels_kmeans, silhouette_label, clisi_knn),
         n_jobs=16,
     )
