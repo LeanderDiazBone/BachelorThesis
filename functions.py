@@ -10,6 +10,7 @@ import pyliger
 from lightning.pytorch.loggers.tensorboard import TensorBoardLogger
 import seaborn as sns
 import pandas as pd
+import copy
 ### Functions for umap visualization
 
 def trainModelVisualization(adata,prior,max_epochs,freq=5,save=None, prior_kwargs=None, max_kl_weight = 1, n_epochs_kl_warmpup = 100):
@@ -277,3 +278,57 @@ def plotcovarianceMatrix(adata, vae):
     ax.set(xticklabels=[])
     ax.tick_params(bottom=False)
     plt.show()
+
+
+### Metrics Epochs experiment
+
+import os
+def loadCkptToSCVIModel(vae, adata, dir,max_epochs,n_eps = 10):
+    for i in range(int(max_epochs/n_eps)):
+        state_dict = torch.load(f"{dir}epoch={n_eps*i+n_eps-1}.ckpt")["state_dict"]
+        keys = list(state_dict.keys())
+        for key in keys:
+            state_dict[key[7:]] = state_dict.pop(key)
+            
+        var_names = adata.var_names.astype(str)
+        var_names = var_names.to_numpy()
+
+        # get all the user attributes
+        user_attributes = vae._get_user_attributes()
+        # only save the public attributes with _ at the very end
+        user_attributes = {a[0]: a[1] for a in user_attributes if a[0][-1] == "_"}
+        model_save_path = os.path.join(f"{dir}epoch={n_eps*i+n_eps-1}", f"model.pt")
+        os.mkdir(f"{dir}epoch={n_eps*i+n_eps-1}")
+        torch.save(
+                    {
+                        "model_state_dict": state_dict,
+                        "var_names": var_names,
+                        "attr_dict": user_attributes,
+                    },
+                    model_save_path
+        )
+
+### KL-Metrics Experiment
+
+def betasTraining(vae, adata, betas, n_epochs_kl_warmup, max_epochs, early_stopping=False):
+    adatac = adata.copy()
+    keys = []
+    for beta in betas:
+        vae_cur = copy.deepcopy(vae)
+        vae_cur.train(plan_kwargs={"max_kl_weight":beta,"n_epochs_kl_warmup":n_epochs_kl_warmup},max_epochs=max_epochs,early_stopping=early_stopping)
+        keys.append(f"scVI_beta={beta}")
+        adatac.obsm[f"scVI_beta={beta}"] = vae_cur.get_latent_representation()
+    return adatac, keys
+
+def runBenchmark(adata, keys, batch_key="batch", label_key="cell_type", isolated_labels = False, nmi_ari_cluster_labels_leiden=False, nmi_ari_cluster_labels_kmeans = False, silhouette_label=False, clisi_knn = False, graph_connectivity=False, ilisi_knn=False, kbet_per_label=False, pcr_comparison=False, silhouette_batch=False):
+    bm = Benchmarker(
+        adata,
+        batch_key=batch_key,
+        label_key=label_key,
+        embedding_obsm_keys=keys,
+        batch_correction_metrics=scib_metrics.benchmark.BatchCorrection(silhouette_batch,ilisi_knn, kbet_per_label, graph_connectivity, pcr_comparison),
+        bio_conservation_metrics=scib_metrics.benchmark.BioConservation(isolated_labels, nmi_ari_cluster_labels_leiden, nmi_ari_cluster_labels_kmeans, silhouette_label, clisi_knn),
+        n_jobs=16,
+    )
+    bm.benchmark()
+    return bm
