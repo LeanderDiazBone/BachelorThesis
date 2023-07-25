@@ -200,24 +200,10 @@ def trainModelBenchmark(adata, prior, prior_kwargs = None, max_epochs = 100, sav
 def plotBenchmarkResults(adata,keys=None,label_key="cell_type",batch_key="batch"):
     if keys == None:
         keys = ["Unintegrated", "LIGER", "Scanorama", "scVI"]
-    bm = Benchmarker(
-    adata,
-    batch_key=batch_key,
-    label_key=label_key,
-    embedding_obsm_keys=keys,
-    bio_conservation_metrics=scib_metrics.benchmark.BioConservation(isolated_labels = True, nmi_ari_cluster_labels_leiden=True, nmi_ari_cluster_labels_kmeans = True, silhouette_label=True, clisi_knn = True),
-    n_jobs=6,
-    )
+    bm = runBenchmark(adata, keys, isolated_labels = True, nmi_ari_cluster_labels_leiden=True, nmi_ari_cluster_labels_kmeans = True, silhouette_label=True, clisi_knn = True, graph_connectivity=True, ilisi_knn=True, kbet_per_label=True, pcr_comparison=True, silhouette_batch=True)
     bm.benchmark()
     bm.plot_results_table(min_max_scale=False)
 
-def plotBenchmarkResultsAll(sdnormalAdata, normalAdata, mogAdata, vampAdata):
-    adataAll = normalAdata
-    adataAll.obsm["scVISDNormal"] = sdnormalAdata.obsm["scVI"]
-    adataAll.obsm["scVINormal"] = normalAdata.obsm["scVI"]
-    adataAll.obsm["scVIMoG"] = mogAdata.obsm["scVI"]
-    adataAll.obsm["scVIVamp"] = vampAdata.obsm["scVI"]
-    plotBenchmarkResults(adataAll,["Unintegrated", "LIGER", "Scanorama", "scVINormal","scVIMoG","scVIVamp","scVISDNormal"])
 
 def scanoramaPredict(adata,batch_label="batch"):
     batch_cats = adata.obs[batch_label].cat.categories
