@@ -93,7 +93,7 @@ def plotAllHistory(model):
 
 ### Functions for Posterior Visualization
 
-def trainModelPostVis(adata,prior,max_epochs,n_epochs_kl_warmup,freq=5,beta=5,save=None, prior_kwargs=None, log=False,early_stopping=False,logname=""):
+def trainModelPostVis(adata,prior,max_epochs=400,n_epochs_kl_warmup=300,freq=5,beta=5,save=None, prior_kwargs=None, log=False,early_stopping=False,logname=""):
     logger = None
     if log:
         logger = TensorBoardLogger(save_dir="lightning_logs",name=logname)
@@ -104,7 +104,7 @@ def trainModelPostVis(adata,prior,max_epochs,n_epochs_kl_warmup,freq=5,beta=5,sa
         model.save(save)
     return model
 
-def contourPlotDist(dist, xlim, ylim,flow=False):
+def getcontourPlotDistPoints(dist, xlim, ylim,flow=False):
     x = np.linspace(-xlim, xlim, 100)
     y = np.linspace(-ylim, ylim, 100)
     X, Y = np.meshgrid(x,y)
@@ -117,6 +117,10 @@ def contourPlotDist(dist, xlim, ylim,flow=False):
                 Z[i][j] = dist.log_prob(torch.tensor([x[i],y[j]]).to(torch.device('cuda:0')))
     levels = np.linspace(-15.0, 0.0, 15)
     np.insert(levels, 0,-1000)
+    return X, Y, Z, levels
+
+def contourPlotDist(dist, xlim, ylim,flow=False):
+    X, Y, Z, levels = getcontourPlotDistPoints(dist, xlim, ylim, flow)
     plt.contourf(X,Y,Z,levels=levels)
     
 
@@ -148,17 +152,27 @@ def posteriorVisualization(adata, vae, pr,flow=False):
     plt.title(pr + " Prior")
     plt.show()
 
-def plotSamples(distr, num, title, numsamples = True):
+def getSamplesDist(distr, num, numsamples = True, flow = False):
     x = []; y = []
     for i in range(num):
-        if numsamples:
-            s = distr.sample(1).cpu()
-            x.append(s[0,0])
-            y.append(s[0,1])
+        if flow:
+            s1, _  = distr.sample(1)
+            s = s1.cpu().detach()
+            x.append(s[0,0].item())
+            y.append(s[0,1].item())
         else:
-            s = distr.sample()
-            x.append(s[0])
-            y.append(s[1])
+            if numsamples:
+                s = distr.sample(1).cpu()
+                x.append(s[0,0])
+                y.append(s[0,1])
+            else:
+                s = distr.sample()
+                x.append(s[0])
+                y.append(s[1])
+    return x,y
+
+def plotSamples(distr, num, title, numsamples = True):
+    x,y = getSamplesDist(distr, num, numsamples)
     plt.scatter(x,y)
     plt.title(title)    
 
@@ -168,28 +182,81 @@ def bothVisualizations(adata, vae, prior, lim=5):
     plotPosterior(getPosteriorPoints(adata, vae, num = 1000))
     plt.title("Posterior and Prior Samples "+prior+" Prior")
 
-def plotFlowSamples(vaeNF):
-    x = []; y = []
-    for i in range(100):
-        s1, _  = vaeNF.module.prior.sample(1)
-        s = s1.cpu().detach()
-        x.append(s[0,0].item())
-        y.append(s[0,1].item())
+def plotFlowSamples(vaeNF, num = 500):
+    x, y = getSamplesDist(vaeNF.module.prior, num, flow =True)
     fig, ax = plt.subplots()
     scatter = ax.scatter(x,y)
     plt.show()
 
+def posteriorVisualizationAll(adata, vaeSN, vaeMG, vaeVP, vaeNF, sample = False):
+    dSN, cell_typesSN = getPosteriorPoints(adata, vaeSN, num=1000)
+    limSN = max(dSN.min(), dSN.max(), key=abs)
+    XSN, YSN, ZSN, levelsSN = getcontourPlotDistPoints(vaeSN.module.prior, limSN, limSN,flow=False)
+    xSN, ySN = getSamplesDist(vaeSN.module.prior, 1000)
+    dMG, cell_typesMG = getPosteriorPoints(adata, vaeMG, num=1000)
+    limMG = max(dMG.min(), dMG.max(), key=abs)
+    XMG, YMG, ZMG, levelsMG = getcontourPlotDistPoints(vaeMG.module.prior, limMG, limMG,flow=False)
+    xMG, yMG = getSamplesDist(vaeMG.module.prior, 1000)
+    dVP, cell_typesVP = getPosteriorPoints(adata, vaeVP, num=1000)
+    limVP = max(dVP.min(), dVP.max(), key=abs)
+    XVP, YVP, ZVP, levelsVP = getcontourPlotDistPoints(vaeVP.module.prior, limVP, limVP,flow=False)
+    xVP, yVP = getSamplesDist(vaeVP.module.prior, 1000)
+    dNF, cell_typesNF = getPosteriorPoints(adata, vaeNF, num=1000)
+    limNF = max(dNF.min(), dNF.max(), key=abs)
+    XNF, YNF, ZNF, levelsNF = getcontourPlotDistPoints(vaeNF.module.prior, limNF, limNF,flow=True)
+    xNF, yNF = getSamplesDist(vaeNF.module.prior, 1000, flow=True)
+    fig, axs = plt.subplots(2,2,figsize=(16,16))
+    
+    if sample:
+        axs[0,0].scatter(xSN,ySN)
+    else:
+        axs[0,0].contourf(XSN,YSN,ZSN,levels=levelsSN)
+    dfSN = pd.DataFrame(np.transpose(np.vstack((dSN,cell_typesSN))), columns=["dx","dy","cell_type"])
+    for ct in dfSN["cell_type"].unique():
+        axs[0,0].scatter(dfSN[dfSN["cell_type"]==ct]["dx"], dfSN[dfSN["cell_type"]==ct]["dy"], s= 5, label=ct)
+    axs[0,0].set_title("Standard Normal Prior")
+    
+    if sample:
+        axs[0,1].scatter(xMG,yMG)
+    else:
+        axs[0,1].contourf(XMG,YMG,ZMG,levels=levelsMG)
+    dfMG = pd.DataFrame(np.transpose(np.vstack((dMG,cell_typesMG))), columns=["dx","dy","cell_type"])
+    for ct in dfSN["cell_type"].unique():
+        axs[0,1].scatter(dfMG[dfMG["cell_type"]==ct]["dx"], dfMG[dfMG["cell_type"]==ct]["dy"], s= 5, label=ct)
+    axs[0,1].set_title("Mixture of Gaussians Prior")
+    
+    if sample:
+        axs[1,0].scatter(xVP,yVP)
+    else:
+        axs[1,0].contourf(XVP,YVP,ZVP,levels=levelsVP)
+    dfVP = pd.DataFrame(np.transpose(np.vstack((dVP,cell_typesVP))), columns=["dx","dy","cell_type"])
+    for ct in dfSN["cell_type"].unique():
+        axs[1,0].scatter(dfVP[dfVP["cell_type"]==ct]["dx"], dfVP[dfVP["cell_type"]==ct]["dy"], s= 5, label=ct)
+    axs[1,0].set_title("Vamp Prior")
+    
+    if sample:
+        axs[1,1].scatter(xNF,yNF)
+    else:
+        axs[1,1].contourf(XNF,YNF,ZNF,levels=levelsNF)
+    dfNF = pd.DataFrame(np.transpose(np.vstack((dNF,cell_typesNF))), columns=["dx","dy","cell_type"])
+    for ct in dfSN["cell_type"].unique():
+        axs[1,1].scatter(dfNF[dfNF["cell_type"]==ct]["dx"], dfNF[dfNF["cell_type"]==ct]["dy"], s= 5, label=ct)
+    axs[1,1].set_title("Normal Flow Prior")
+    #axs.set_xlabel("latent_1")
+    #axs.set_ylabel("latent_2")
+    plt.show()
+    
 ### Functions for Benchmark
 from scib_metrics.benchmark import Benchmarker
 import scib_metrics
 
-def trainModelBenchmark(adata, prior, prior_kwargs = None, max_epochs = 100, save=None, batch_key="batch",log=False,logname="",early_stopping=False):
+def trainModelBenchmark(adata, prior,  max_epochs = 400,n_epochs_kl_warmup=300,beta=5, save=None, batch_key="batch",log=False,logname="",early_stopping=False):
     scvi.model.SCVI.setup_anndata(adata, layer="counts", batch_key=batch_key)
     logger = None
     if log:
         logger = TensorBoardLogger(save_dir="lightning_logs",name=logname)
-    vae = scvi.model.SCVI(adata, prior_distribution = prior,prior_kwargs=prior_kwargs, n_layers=2, n_latent=30)
-    vae.train(max_epochs=max_epochs,check_val_every_n_epoch=5,logger=logger,early_stopping=early_stopping)
+    vae = scvi.model.SCVI(adata, prior_distribution = prior, n_latent=10)
+    vae.train(max_epochs=max_epochs,check_val_every_n_epoch=5,logger=logger,early_stopping=early_stopping,plan_kwargs={"max_kl_weight":beta,"n_epochs_kl_warmup":n_epochs_kl_warmup})
     if save != None:
         vae.save(save)
     adata.obsm["scVI"] = vae.get_latent_representation()
