@@ -93,13 +93,13 @@ def plotAllHistory(model):
 
 ### Functions for Posterior Visualization
 
-def trainModelPostVis(adata,prior,max_epochs,freq=5,save=None, prior_kwargs=None, log=False,early_stopping=False,logname=""):
+def trainModelPostVis(adata,prior,max_epochs,n_epochs_kl_warmup,freq=5,beta=5,save=None, prior_kwargs=None, log=False,early_stopping=False,logname=""):
     logger = None
     if log:
         logger = TensorBoardLogger(save_dir="lightning_logs",name=logname)
     scvi.model.SCVI.setup_anndata(adata, layer="counts")
     model = scvi.model.SCVI(adata,prior_distribution=prior, prior_kwargs=prior_kwargs,n_latent=2)
-    model.train(max_epochs = max_epochs, check_val_every_n_epoch=freq,logger=logger,early_stopping=early_stopping)
+    model.train(max_epochs = max_epochs, check_val_every_n_epoch=freq,logger=logger,early_stopping=early_stopping, plan_kwargs={"max_kl_weight":beta,"n_epochs_kl_warmup":n_epochs_kl_warmup})
     if save != None:
         model.save(save)
     return model
@@ -145,9 +145,7 @@ def posteriorVisualization(adata, vae, pr,flow=False):
     lim = max(d.min(), d.max(), key=abs)
     contourPlotDist(vae.module.prior, lim, lim,flow)
     plotPosterior(d, cell_type)
-    plt.title("Posterior and Prior Vis " + pr + " Prior")
-    plt.xlabel("latent_1")
-    plt.ylabel("latent_2")
+    plt.title(pr + " Prior")
     plt.show()
 
 def plotSamples(distr, num, title, numsamples = True):
