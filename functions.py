@@ -245,10 +245,11 @@ def posteriorVisualizationAll(adata, vaeSN, vaeMG, vaeVP, vaeNF, sample = False)
     #axs.set_xlabel("latent_1")
     #axs.set_ylabel("latent_2")
     plt.show()
-    
+
 ### Functions for Benchmark
 from scib_metrics.benchmark import Benchmarker
 import scib_metrics
+from lightning.pytorch.callbacks import Timer
 
 def trainModelBenchmark(adata, prior,  max_epochs = 400,n_epochs_kl_warmup=300,beta=5, save=None, batch_key="batch",log=False,logname="",early_stopping=False):
     scvi.model.SCVI.setup_anndata(adata, layer="counts", batch_key=batch_key)
@@ -257,9 +258,9 @@ def trainModelBenchmark(adata, prior,  max_epochs = 400,n_epochs_kl_warmup=300,b
         logger = TensorBoardLogger(save_dir="lightning_logs",name=logname)
     vae = scvi.model.SCVI(adata, prior_distribution = prior, n_latent=10)
     vae.train(max_epochs=max_epochs,check_val_every_n_epoch=5,logger=logger,early_stopping=early_stopping,plan_kwargs={"max_kl_weight":beta,"n_epochs_kl_warmup":n_epochs_kl_warmup})
-    if save != None:
-        vae.save(save)
     adata.obsm["scVI"] = vae.get_latent_representation()
+    if save != None:
+        vae.save(save, save_anndata=True)
     return adata, vae
 
 def plotBenchmarkResults(adata,keys=None,label_key="cell_type",batch_key="batch"):
