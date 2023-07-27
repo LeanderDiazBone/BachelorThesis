@@ -263,12 +263,13 @@ def trainModelBenchmark(adata, prior,  max_epochs = 400,n_epochs_kl_warmup=300,b
         vae.save(save, save_anndata=True)
     return adata, vae
 
-def plotBenchmarkResults(adata,keys=None,label_key="cell_type",batch_key="batch"):
+def plotBenchmarkResults(adata,keys=None,label_key="cell_type",batch_key="batch",save_dir=None):
     if keys == None:
         keys = ["Unintegrated", "LIGER", "Scanorama", "scVI"]
-    bm = runBenchmark(adata, keys, isolated_labels = True, nmi_ari_cluster_labels_leiden=True, nmi_ari_cluster_labels_kmeans = True, silhouette_label=True, clisi_knn = True, graph_connectivity=True, ilisi_knn=True, kbet_per_label=True, pcr_comparison=True, silhouette_batch=True)
+    bm = runBenchmark(adata, keys, label_key=label_key, batch_key=batch_key,isolated_labels = True, nmi_ari_cluster_labels_leiden=True, nmi_ari_cluster_labels_kmeans = True, silhouette_label=True, clisi_knn = True, graph_connectivity=True, ilisi_knn=True, kbet_per_label=True, pcr_comparison=True, silhouette_batch=True)
     bm.benchmark()
-    bm.plot_results_table(min_max_scale=False)
+    bm.plot_results_table(min_max_scale=False,save_dir=save_dir)
+    plt.show()
 
 
 def scanoramaPredict(adata,batch_label="batch"):
