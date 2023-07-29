@@ -11,6 +11,25 @@ from lightning.pytorch.loggers.tensorboard import TensorBoardLogger
 import seaborn as sns
 import pandas as pd
 import copy
+from SCVIModelCheckpoint import SCVIModelCheckpoint 
+
+def trainModel(adata, prior, beta = 5, n_epochs_kl_warmup = 300,  max_epochs = 400, log=False,logname="", early_stopping=False, save = None, n_latent=10, checkpoint = False, checkpointFolder = "", every_n = 10,prior_kwargs=None):
+    adatac = adata.copy()
+    scvi.model.SCVI.setup_anndata(adatac, layer="counts",batch_key="batch")
+    vae = scvi.model.SCVI(adatac, prior_distribution=prior, n_latent=n_latent,prior_kwargs=prior_kwargs)
+    logger = None
+    if log:
+        logger = TensorBoardLogger(save_dir="lightning_logs",name=logname)
+    callbacks = []
+    if checkpoint:
+        checkpoint_callback = SCVIModelCheckpoint(dirpath= f"/local/data/BachelorThesis/metaExperiments/models/{checkpointFolder}/",save_last=False,filename="{epoch:d}",every_n_epochs=every_n,save_top_k=-1,scviModel=vae)
+        callbacks.append(checkpoint_callback)
+    vae.train(enable_checkpointing = checkpoint,  max_epochs = max_epochs, callbacks=callbacks, check_val_every_n_epoch=1,logger=logger,early_stopping=early_stopping,plan_kwargs={"max_kl_weight":beta,"n_epochs_kl_warmup":n_epochs_kl_warmup})
+    if save:
+        vae.save(save, save_anndata=True)
+    adatac.obsm["scVI"] = vae.get_latent_representation()
+    return adatac, vae
+
 ### Functions for umap visualization
 
 def trainModelVisualization(adata,prior,max_epochs,freq=5,save=None, prior_kwargs=None, max_kl_weight = 1, n_epochs_kl_warmpup = 100):
@@ -263,13 +282,26 @@ def trainModelBenchmark(adata, prior,  max_epochs = 400,n_epochs_kl_warmup=300,b
         vae.save(save, save_anndata=True)
     return adata, vae
 
+def runBenchmark(adata, keys, batch_key="batch", label_key="cell_type", isolated_labels = False, nmi_ari_cluster_labels_leiden=False, nmi_ari_cluster_labels_kmeans = False, silhouette_label=False, clisi_knn = False, graph_connectivity=False, ilisi_knn=False, kbet_per_label=False, pcr_comparison=False, silhouette_batch=False):
+    bm = Benchmarker(
+        adata,
+        batch_key=batch_key,
+        label_key=label_key,
+        embedding_obsm_keys=keys,
+        batch_correction_metrics=scib_metrics.benchmark.BatchCorrection(silhouette_batch, ilisi_knn, kbet_per_label, graph_connectivity, pcr_comparison),
+        bio_conservation_metrics=scib_metrics.benchmark.BioConservation(isolated_labels, nmi_ari_cluster_labels_leiden, nmi_ari_cluster_labels_kmeans, silhouette_label, clisi_knn),
+        n_jobs=16,
+    )
+    bm.benchmark()
+    return bm
+
 def plotBenchmarkResults(adata,keys=None,label_key="cell_type",batch_key="batch",save_dir=None):
     if keys == None:
         keys = ["Unintegrated", "LIGER", "Scanorama", "scVI"]
     bm = runBenchmark(adata, keys, label_key=label_key, batch_key=batch_key,isolated_labels = True, nmi_ari_cluster_labels_leiden=True, nmi_ari_cluster_labels_kmeans = True, silhouette_label=True, clisi_knn = True, graph_connectivity=True, ilisi_knn=True, kbet_per_label=True, pcr_comparison=True, silhouette_batch=True)
-    bm.benchmark()
     bm.plot_results_table(min_max_scale=False,save_dir=save_dir)
     plt.show()
+    return bm
 
 
 def scanoramaPredict(adata,batch_label="batch"):
@@ -360,28 +392,51 @@ def loadCkptToSCVIModel(vae, adata, dir,max_epochs,n_eps = 10):
                     },
                     model_save_path
         )
+### Hyperparametertraining
+
+def hyperTraining(adata, prior, hyperpar, ks, n_epochs_kl_warmup=300, max_epochs=400, beta = 5, early_stopping=False):
+    adatac = adata.copy()
+    keys = []
+    for k in ks:
+        vae, adataPrior = trainModel(adata, prior, beta, n_epochs_kl_warmup=n_epochs_kl_warmup,max_epochs=max_epochs,early_stopping=early_stopping,save=f"models/HyperExp_{prior}_{k}",prior_kwargs={hyperpar:k})
+        keys.append(f"scVI_k={k}")
+        adatac.obsm[f"scVI_k={k}"] = vae.get_latent_representation()
+    return adatac, keys
 
 ### KL-Metrics Experiment
 
-def betasTraining(vae, adata, betas, n_epochs_kl_warmup, max_epochs, early_stopping=False):
-    adatac = adata.copy()
+def betasTraining(adata, prior, betas, n_epochs_kl_warmup=300, max_epochs=400, early_stopping=False):
     keys = []
+    adatac = adata.copy()
     for beta in betas:
-        vae_cur = copy.deepcopy(vae)
-        vae_cur.train(plan_kwargs={"max_kl_weight":beta,"n_epochs_kl_warmup":n_epochs_kl_warmup},max_epochs=max_epochs,early_stopping=early_stopping)
+        adataPrior, vae  = trainModel(adata, prior, beta, n_epochs_kl_warmup=n_epochs_kl_warmup,max_epochs=max_epochs,early_stopping=early_stopping,save=f"models/KL_Exp/{prior}_{beta}")
         keys.append(f"scVI_beta={beta}")
-        adatac.obsm[f"scVI_beta={beta}"] = vae_cur.get_latent_representation()
+        adatac.obsm[f"scVI_beta={beta}"] = vae.get_latent_representation()
     return adatac, keys
 
-def runBenchmark(adata, keys, batch_key="batch", label_key="cell_type", isolated_labels = False, nmi_ari_cluster_labels_leiden=False, nmi_ari_cluster_labels_kmeans = False, silhouette_label=False, clisi_knn = False, graph_connectivity=False, ilisi_knn=False, kbet_per_label=False, pcr_comparison=False, silhouette_batch=False):
-    bm = Benchmarker(
-        adata,
-        batch_key=batch_key,
-        label_key=label_key,
-        embedding_obsm_keys=keys,
-        batch_correction_metrics=scib_metrics.benchmark.BatchCorrection(silhouette_batch, ilisi_knn, kbet_per_label, graph_connectivity, pcr_comparison),
-        bio_conservation_metrics=scib_metrics.benchmark.BioConservation(isolated_labels, nmi_ari_cluster_labels_leiden, nmi_ari_cluster_labels_kmeans, silhouette_label, clisi_knn),
-        n_jobs=16,
-    )
-    bm.benchmark()
-    return bm
+
+def getBenchmarkResultsEpochs(adata,dir,max_epochs,n_eps=10):
+    adatac = adata.copy()
+    keys = []
+    for i in range(int(max_epochs/n_eps)-1):
+        vae = scvi.model.SCVI.load(f"{dir}epoch={n_eps*i+n_eps-1}/",adata=adata)
+        keys.append(f"scVIepoch={n_eps*i+n_eps-1}")
+        adatac.obsm[keys[i]] = vae.get_latent_representation()
+    return runBenchmark(adatac, keys, nmi_ari_cluster_labels_leiden=True, kbet_per_label=True)
+
+import seaborn as sns
+def plotMetricsEpochs(bm,  max_epochs, name, n_eps = 10):
+    benchmark_results = bm.get_results(min_max_scale=False)
+    metrics = benchmark_results.keys()
+    metrics_results = []
+    fig, axes = plt.subplots(1,3,figsize=(15,4))
+    for i in range(3):
+        metrics_results.append([])
+        for j in range(int(max_epochs/n_eps)):
+            metrics_results[i].append(benchmark_results[metrics[i]][f"scVIepoch={n_eps*j+n_eps-1}"])
+        data = pd.DataFrame(metrics_results[i],index=np.linspace(n_eps-1,max_epochs-1, int(max_epochs/n_eps)))
+        plot = sns.lineplot(data,ax=axes[i],legend=False)
+        plot.set_title(metrics[i])
+    fig.supxlabel('Epoch')
+    plt.savefig(f"epoch_metrics/{name}")
+    plt.show()
