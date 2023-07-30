@@ -398,7 +398,7 @@ def hyperTraining(adata, prior, hyperpar, ks, n_epochs_kl_warmup=300, max_epochs
     adatac = adata.copy()
     keys = []
     for k in ks:
-        vae, adataPrior = trainModel(adata, prior, beta, n_epochs_kl_warmup=n_epochs_kl_warmup,max_epochs=max_epochs,early_stopping=early_stopping,save=f"models/HyperExp_{prior}_{k}",prior_kwargs={hyperpar:k})
+        adataPrior, vae = trainModel(adata, prior, beta, n_epochs_kl_warmup=n_epochs_kl_warmup,max_epochs=max_epochs,early_stopping=early_stopping,save=f"models/Hyper_Exp/HyperExp_{prior}_{k}",prior_kwargs={hyperpar:k})
         keys.append(f"scVI_k={k}")
         adatac.obsm[f"scVI_k={k}"] = vae.get_latent_representation()
     return adatac, keys
