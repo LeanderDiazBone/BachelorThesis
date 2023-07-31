@@ -440,3 +440,25 @@ def plotMetricsEpochs(bm,  max_epochs, name, n_eps = 10):
     fig.supxlabel('Epoch')
     plt.savefig(f"epoch_metrics/{name}")
     plt.show()
+
+def plotMetricsEpochsAll(bmSD, bmMG, bmVP, bmNF,  max_epochs, name, n_eps = 10):
+    benchmark_resultsSD = bmSD.get_results(min_max_scale=False)
+    benchmark_resultsMG = bmMG.get_results(min_max_scale=False)
+    benchmark_resultsVP = bmVP.get_results(min_max_scale=False)
+    benchmark_resultsNF = bmNF.get_results(min_max_scale=False)
+    metrics = benchmark_resultsSD.keys()
+    
+    fig, axes = plt.subplots(1,3,figsize=(15,4))
+    for i in range(3):
+        metrics_results = [[],[],[],[]]
+        for j in range(int(max_epochs/n_eps)):
+            metrics_results[0].append(benchmark_resultsSD[metrics[i]][f"scVIepoch={n_eps*j+n_eps-1}"])
+            metrics_results[1].append(benchmark_resultsMG[metrics[i]][f"scVIepoch={n_eps*j+n_eps-1}"])
+            metrics_results[2].append(benchmark_resultsVP[metrics[i]][f"scVIepoch={n_eps*j+n_eps-1}"])
+            metrics_results[3].append(benchmark_resultsNF[metrics[i]][f"scVIepoch={n_eps*j+n_eps-1}"])
+        data = pd.DataFrame(np.transpose(np.array(metrics_results)),index=np.linspace(n_eps-1,max_epochs-1, int(max_epochs/n_eps)),columns=["SN","MG","VP","NF"])
+        plot = sns.lineplot(data,ax=axes[i],legend=True)
+        plot.set_title(metrics[i])
+    fig.supxlabel('Epoch')
+    plt.savefig(f"epoch_metrics/{name}")
+    plt.show()
