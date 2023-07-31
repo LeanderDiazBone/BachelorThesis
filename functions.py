@@ -42,25 +42,28 @@ def trainModelVisualization(adata,prior,max_epochs,freq=5,save=None, prior_kwarg
 
 def umapVisualization(model, adata):
     warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
-    adata.obsm["X_scVI"] = model.get_latent_representation()
+    adatac = adata.copy()
+    adatac.obsm["X_scVI"] = model.get_latent_representation()
     #adata_subset = adata[adata.obs.cell_type == "Fibroblast"]
     #latent_subset = model.get_latent_representation(adata_subset)
     #denoised = model.get_normalized_expression(adata_subset, library_size=1e4)
     #denoised.iloc[:5, :5]
     #adata.layers["scvi_normalized"] = model.get_normalized_expression(library_size=10e4)
-    sc.pp.neighbors(adata, use_rep="X_scVI")
-    sc.tl.umap(adata, min_dist=0.3)
+    sc.pp.neighbors(adatac, use_rep="X_scVI")
+    sc.tl.umap(adatac, min_dist=0.3)
     sc.pl.umap(
-        adata,
+        adatac,
         color=["cell_type"],
         frameon=False,
+        save="test.png"
     )
-    """sc.pl.umap(
-        adata,
-        color=["donor", "cell_source"],
+    sc.pl.umap(
+        adatac,
+        color=["batch"],
         ncols=2,
         frameon=False,
-    )"""
+        save="test2.png"
+    )
 
 ### Functions for visualizing Training History
 
