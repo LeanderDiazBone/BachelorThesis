@@ -273,12 +273,12 @@ from scib_metrics.benchmark import Benchmarker
 import scib_metrics
 from lightning.pytorch.callbacks import Timer
 
-def trainModelBenchmark(adata, prior,  max_epochs = 400,n_epochs_kl_warmup=300,beta=5, save=None, batch_key="batch",log=False,logname="",early_stopping=False):
+def trainModelBenchmark(adata, prior,  max_epochs = 400,n_epochs_kl_warmup=300,beta=5, save=None, batch_key="batch",log=False,logname="",early_stopping=False,kl_closed=True):
     scvi.model.SCVI.setup_anndata(adata, layer="counts", batch_key=batch_key)
     logger = None
     if log:
         logger = TensorBoardLogger(save_dir="lightning_logs",name=logname)
-    vae = scvi.model.SCVI(adata, prior_distribution = prior, n_latent=10)
+    vae = scvi.model.SCVI(adata, prior_distribution = prior, n_latent=10, kl_closed = kl_closed)
     vae.train(max_epochs=max_epochs,check_val_every_n_epoch=5,logger=logger,early_stopping=early_stopping,plan_kwargs={"max_kl_weight":beta,"n_epochs_kl_warmup":n_epochs_kl_warmup})
     adata.obsm["scVI"] = vae.get_latent_representation()
     if save != None:
